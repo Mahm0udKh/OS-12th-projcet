@@ -47,3 +47,11 @@ void printf(const char*, ...) __attribute__ ((format (printf, 1, 2)));
 // umalloc.c
 void* malloc(uint);
 void free(void*);
+int whoami(void);
+int useradd(char*, char*, int);
+int userdel(char*);
+int passwd(char*, char*);
+int login(char*, char*);
+int chown(char*, int);
+int audit_read(void);
+int chmod(char*, int);

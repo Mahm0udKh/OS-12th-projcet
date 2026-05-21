@@ -310,11 +310,17 @@ sys_open(void)
   struct inode *ip;
   int n;
 
-  argint(1, &omode);
-  if((n = argstr(0, path, MAXPATH)) < 0)
-    return -1;
+  if((n = argstr(0, path, MAXPATH)) < 0) return -1;
+  argint(1, &omode); 
 
   begin_op();
+
+  // Phase 2: PRE-CHECK for Patients (UID 1)
+  if(myproc()->uid == 1 && (omode & O_CREATE)){
+    printf("[SECURITY ALERT] Patient UID %d attempted to create a file!\n", myproc()->uid);
+    end_op();
+    return -1; 
+  }
 
   if(omode & O_CREATE){
     ip = create(path, T_FILE, 0, 0);
@@ -335,20 +341,68 @@ sys_open(void)
     }
   }
 
+  uint my_uid = myproc()->uid;
+  uint my_gid = myproc()->gid;
+  uint file_uid = ip->uid & 0xFFFF;       // lower 16 bits = real UID
+  uint file_mode = (ip->uid >> 16) & 0xFFFF; // upper 16 bits = chmod mode
+  uint file_gid = ip->gid;
+
+  // Rule 0: Allow all users to interact with Console/Hardware
+  if(ip->type == T_DEVICE) goto granted;
+
+  // Rule 1: Administrators (UID 0) have master access
+  if(my_uid == 0) goto granted;
+
+  // Rule 1.5: chmod mode check
+  // mode 0 = locked, mode 4 = read-only, mode 6 = read+write (default)
+  if(file_mode == 0 && ip->uid > 0xFFFF){
+    printf("Access Denied: file is locked (mode=0).\n");
+    iunlockput(ip);
+    end_op();
+    return -1;
+  }
+  if(file_mode == 4 && omode != O_RDONLY){
+    printf("Access Denied: file is read-only (mode=4).\n");
+    iunlockput(ip);
+    end_op();
+    return -1;
+  }
+
+  // Rule 2: Owners always have access to their own files
+  if(my_uid == file_uid) goto granted;
+
+  // Rule 3: Clinical Access (Doctors [UID 2] can access Patient [UID 1] files)
+  if(my_uid == 2 && file_uid == 1) goto granted;
+
+  // Rule 4: Patient Access (Patients [UID 1] can READ Doctor [UID 2] records)
+  if(my_uid == 1 && file_uid == 2) {
+    if(omode == O_RDONLY) goto granted;
+    else {
+        printf("[SECURITY ALERT] Patient UID %d attempted to modify a Doctor's file.\n", my_uid);
+        iunlockput(ip);
+        end_op();
+        return -1;
+    }
+  }
+
+  // Rule 5: Default Deny
+  printf("Access Denied.\n");
+  iunlockput(ip);
+  end_op();
+  return -1;
+
+granted:
   if(ip->type == T_DEVICE && (ip->major < 0 || ip->major >= NDEV)){
     iunlockput(ip);
     end_op();
     return -1;
   }
-
   if((f = filealloc()) == 0 || (fd = fdalloc(f)) < 0){
-    if(f)
-      fileclose(f);
+    if(f) fileclose(f);
     iunlockput(ip);
     end_op();
     return -1;
   }
-
   if(ip->type == T_DEVICE){
     f->type = FD_DEVICE;
     f->major = ip->major;
@@ -359,14 +413,11 @@ sys_open(void)
   f->ip = ip;
   f->readable = !(omode & O_WRONLY);
   f->writable = (omode & O_WRONLY) || (omode & O_RDWR);
-
   if((omode & O_TRUNC) && ip->type == T_FILE){
     itrunc(ip);
   }
-
   iunlock(ip);
   end_op();
-
   return fd;
 }
 
@@ -501,5 +552,73 @@ sys_pipe(void)
     fileclose(wf);
     return -1;
   }
+  return 0;
+}
+
+uint64
+sys_chown(void)
+{
+  char path[MAXPATH];
+  int uid;
+  struct inode *ip;
+
+  // Fetch arguments (using the split version we discussed)
+argint(1, &uid);
+if(argstr(0, path, MAXPATH) < 0)
+    return -1;
+  // Security Check: Only Admin (UID 0) can change file ownership
+  if(myproc()->uid != 0)
+    return -1;
+
+  begin_op();
+  if((ip = namei(path)) == 0){
+    end_op();
+    return -1;
+  }
+
+  ilock(ip);
+  
+  // Update the UID and GID and sync to disk
+  ip->uid = uid;
+  ip->gid = uid;
+  iupdate(ip);
+  
+  iunlockput(ip);
+  end_op();
+
+  return 0;
+}
+
+uint64
+sys_chmod(void)
+{
+  char path[MAXPATH];
+  int mode;
+  struct inode *ip;
+
+  argint(1, &mode);
+  if(argstr(0, path, MAXPATH) < 0)
+    return -1;
+
+  // Security check: Only owner or Admin (UID 0) can change permissions
+  begin_op();
+  if((ip = namei(path)) == 0){
+    end_op();
+    return -1;
+  }
+  ilock(ip);
+
+  if(myproc()->uid != 0 && myproc()->uid != ip->uid){
+    iunlockput(ip);
+    end_op();
+    return -1; // Permission denied
+  }
+
+  // Store mode in upper 16 bits of uid (lower 16 bits = real UID)
+  ip->uid = (ip->uid & 0xFFFF) | ((uint)mode << 16);
+  iupdate(ip);
+
+  iunlockput(ip);
+  end_op();
   return 0;
 }

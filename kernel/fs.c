@@ -209,6 +209,10 @@ ialloc(uint dev, short type)
     if(dip->type == 0){  // a free inode
       memset(dip, 0, sizeof(*dip));
       dip->type = type;
+      
+      dip->uid = myproc()->uid; // Sets the file owner to the current user
+      dip->gid = myproc()->gid; // Sets the file group to the current user's group 
+     
       log_write(bp);   // mark it allocated on the disk
       brelse(bp);
       return iget(dev, inum);
@@ -234,8 +238,18 @@ iupdate(struct inode *ip)
   dip->type = ip->type;
   dip->major = ip->major;
   dip->minor = ip->minor;
+  
+  dip->uid = ip->uid;
+  dip->gid = ip->gid;
+  
   dip->nlink = ip->nlink;
   dip->size = ip->size;
+  
+  
+  dip->uid = ip->uid;
+  dip->gid = ip->gid;
+  
+  
   memmove(dip->addrs, ip->addrs, sizeof(ip->addrs));
   log_write(bp);
   brelse(bp);
@@ -295,6 +309,7 @@ ilock(struct inode *ip)
 {
   struct buf *bp;
   struct dinode *dip;
+  
 
   if(ip == 0 || ip->ref < 1)
     panic("ilock");
@@ -308,6 +323,10 @@ ilock(struct inode *ip)
     ip->major = dip->major;
     ip->minor = dip->minor;
     ip->nlink = dip->nlink;
+    
+    ip->uid = dip->uid;
+    ip->gid = dip->gid;
+    
     ip->size = dip->size;
     memmove(ip->addrs, dip->addrs, sizeof(ip->addrs));
     brelse(bp);

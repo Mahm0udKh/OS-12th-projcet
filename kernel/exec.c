@@ -88,10 +88,17 @@ kexec(char *path, char **argv)
   uint64 sz1;
   if((sz1 = uvmalloc(pagetable, sz, sz + (USERSTACK+1)*PGSIZE, PTE_W)) == 0)
     goto bad;
-  sz = sz1;
+sz = sz1;
   uvmclear(pagetable, sz-(USERSTACK+1)*PGSIZE);
-  sp = sz;
-  stackbase = sp - USERSTACK*PGSIZE;
+  
+  // --- ASLR MODIFICATION START ---
+  extern uint ticks;                   // Bring in the system clock ticks
+  sp = sz;                             // Original stack pointer boundary
+  sp -= (ticks % 16) * 16;             // Subtract a random 16-byte aligned offset
+  stackbase = sz - USERSTACK*PGSIZE;   // Ensure stackbase stays at the page boundary
+  // --- ASLR MODIFICATION END ---
+
+  // Copy argument strings into new stack...
 
   // Copy argument strings into new stack, remember their
   // addresses in ustack[].

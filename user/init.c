@@ -1,5 +1,3 @@
-// init: The initial user-level program
-
 #include "kernel/types.h"
 #include "kernel/stat.h"
 #include "kernel/spinlock.h"
@@ -22,9 +20,36 @@ main(void)
   }
   dup(0);  // stdout
   dup(0);  // stderr
+    useradd("admin",  "admin", 0);
+    useradd("doctor",  "doc123", 2);
+    useradd("patient", "pat123",  1);
 
+
+
+  // The Infinite Boot Loop
   for(;;){
-    printf("init: starting sh\n");
+    char user[32];
+    char pass[32];
+
+    // 1. The Custom Prompt
+    printf("\nxv6 Medical Device Login\n");
+    printf("Username: ");
+    gets(user, sizeof(user));
+    user[strlen(user)-1] = 0; // Strip the newline character
+
+    printf("Password: ");
+    gets(pass, sizeof(pass));
+    pass[strlen(pass)-1] = 0; // Strip the newline character
+
+    // 2. The Verification
+    if(login(user, pass) < 0){
+        printf("Access Denied.\n");
+        continue; // Loop back to the prompt
+    }
+
+    printf("Access Granted.\n");
+
+    // 3. Spawn the shell ONLY if authenticated
     pid = fork();
     if(pid < 0){
       printf("init: fork failed\n");
@@ -36,19 +61,7 @@ main(void)
       exit(1);
     }
 
-    for(;;){
-      // this call to wait() returns if the shell exits,
-      // or if a parentless process exits.
-      wpid = wait((int *) 0);
-      if(wpid == pid){
-        // the shell exited; restart it.
-        break;
-      } else if(wpid < 0){
-        printf("init: wait returned an error\n");
-        exit(1);
-      } else {
-        // it was a parentless process; do nothing.
-      }
-    }
+    while((wpid=wait((int *) 0)) >= 0 && wpid != pid)
+      printf("zombie!\n");
   }
 }

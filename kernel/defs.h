@@ -17,6 +17,7 @@ void            bwrite(struct buf*);
 void            bpin(struct buf*);
 void            bunpin(struct buf*);
 
+
 // console.c
 void            consoleinit(void);
 void            consoleintr(int);
@@ -137,6 +138,9 @@ int             fetchaddr(uint64, uint64*);
 void            syscall();
 
 // trap.c
+
+void            record_audit(int, uint, int);
+void            dump_audit(void);
 extern uint     ticks;
 void            trapinit(void);
 void            trapinithart(void);
